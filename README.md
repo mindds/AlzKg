@@ -26,5 +26,5 @@ Mathys et al Overview
 Lau et al Overview
 * Celltype nodes added: 1
 * Gene nodes added: 102
-* Edges added: 'no-pathology vs pathology up lau', 'no-pathology vs pathology down lau'
+* Edges added:
 * data from fig 2C
