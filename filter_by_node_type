@@ -1,0 +1,61 @@
+import pandas as pd
+
+def filter_by_node_types(file_path, operation_mode, node_types=None):
+    """
+    Filter or print unique node types from a knowledge graph CSV file based on user preferences.
+
+    Args:
+        file_path (str): The path to the CSV file to be processed.
+        operation_mode (str): Operation mode;
+        'retain_node_types' to retain rows where both x_type and y_type match the specified node types,
+        'delete_node_types' to remove rows where either x_type or y_type match the specified node types, or
+        'print_node_types' to print unique node types in the x_type column.
+        node_types (list, optional): List of node types to either retain or remove, based on the operation mode.
+        Required for 'retain_node_types' and 'delete_node_types' modes.
+
+    Returns:
+        None: Depending on the operation mode, the function outputs a filtered CSV file or prints unique node types.
+    """
+    
+    # Load the dataset
+    primekg = pd.read_csv(file_path)
+
+    if operation_mode == 'print_node_types':
+        # Print all unique node types in the x_type column
+        unique_node_types = primekg['x_type'].unique()
+        print("Unique node types in x_type column:", unique_node_types)
+        return
+
+    if node_types is None:
+        raise ValueError("node_types must be provided for 'retain_node_types' or 'delete_node_types' operation modes.")
+
+    if operation_mode == 'retain_node_types':
+        # Filter the DataFrame to retain rows where both x_type and y_type match the specified node types
+        filtered_primekg = primekg[
+            (primekg['x_type'].isin(node_types)) & (primekg['y_type'].isin(node_types))
+        ]
+    elif operation_mode == 'delete_node_types':
+        # Filter the DataFrame to remove rows where either x_type or y_type matches the specified node types
+        filtered_primekg = primekg[
+            (~primekg['x_type'].isin(node_types)) & (~primekg['y_type'].isin(node_types))
+        ]
+    else:
+        raise ValueError("Invalid operation mode. Choose 'retain_node_types', 'delete_node_types', or 'print_node_types'.")
+
+    if operation_mode in ['retain_node_types', 'delete_node_types']:
+        # Write the filtered DataFrame to a new CSV file
+        output_path = file_path.replace('.csv', '_filtered.csv')
+        filtered_primekg.to_csv(output_path, index=False)
+        print(f"Filtered data written to {output_path}")
+
+# Example usage
+# Import the drive module from Google Colab for file access, mount Google Drive
+from google.colab import drive
+drive.mount('/content/drive')
+file_path = '/content/drive/My Drive/primekg_files/kg_raw_orig_filtered.csv'  # Adjust the path as needed
+operation_mode = 'print_node_types'  # Can be 'retain_node_types', 'delete_node_types', or 'print_node_types'
+node_types = ['gene/protein', 'pathway', 'biological_process', 'cellular_component']  # Specify node types for 'retain_node_types' or 'delete_node_types' modes
+
+filter_by_node_types(file_path, operation_mode, node_types)
+
+     
