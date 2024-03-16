@@ -1,3 +1,5 @@
-﻿Paper,dataset used,"celltype nodes added (node ID, type of cell)"
-Lau et al 2020,"Fig. 2C and SI Appendix, Table S3","Endo (lau-c1, endothelial cells)"
-Smith et al 2021,"Fig. 2, Supplementary Tables 6 and 7",
+"node types", "description"
+"gene/protein"
+"celltype/state"
+"pathway"
+"disease"
