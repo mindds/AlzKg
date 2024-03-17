@@ -1,6 +1,6 @@
 **PrimeKG Files List. Location: https://www.dropbox.com/home/CATS-OMICS/AlzKG/PrimeKG**
 1. Original PrimeKG Files:
-   1. kgraw_orig_filtered
+   1. kg_raw_orig_filtered
    2. nodes_orig_filtered
 2. PrimeKG + data from Mathys et al:
    1. Ex_kg
