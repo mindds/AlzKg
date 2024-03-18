@@ -8,8 +8,9 @@
    3. Oli_kg
    4. Opc_kg
    5. Mic_kg
-   6. kgraw_with_mathys
-   7. nodes_with_mathys
+   6. Ast_kg
+   7. kgraw_with_mathys
+   8. nodes_with_mathys
 3. PrimeKG + data from Mathys et al and Lau et al:
    1. kgraw_with_mathys_lau
    2. nodes_with_mathys_lau
