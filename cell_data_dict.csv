@@ -4,5 +4,5 @@
 "Ast","c3","Astrocytes"
 "Mic","c4","Microglia"
 "Oli","c5","Oligodendrocytes"
-"Opc","c6","Oligodendrocyte Precursor Cells? (CHECK AND CHANGE IF NEEDED)"
-"Endo","lau-c1","Endothelial Cells"
+"Opc","c6","Oligodendrocyte Precursor Cells"
+"Endo (IN PROGRESS)","c7","Endothelial Cells"
