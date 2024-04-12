@@ -24,10 +24,5 @@ If you're contributing new data from a research paper to AlzKG, please follow th
 3. PrimeKG + data from Mathys et al and Lau et al:
    1. kgraw_with_mathys_lau
 
-**Mathys et al Overview**
-* Celltype nodes added: 6
-* Gene nodes added: 845 
-* Sample graph:
-
 **Lau et al Overview**
 * data from fig 2C
