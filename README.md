@@ -23,6 +23,8 @@ If you're contributing new data from a research paper to AlzKG, please follow th
    8. nodes_with_mathys
 3. PrimeKG + data from Mathys et al and Lau et al:
    1. kgraw_with_mathys_lau
+4. PrimeKG + data from Mathys et al, Lau et al, and Smith et al:
+   1. kgraw_with_mathys_lau_smith
 
 **Lau et al Overview**
 * data from fig 2C
