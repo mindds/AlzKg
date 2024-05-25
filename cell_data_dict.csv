@@ -6,3 +6,14 @@
 "Oli","c5","Oligodendrocytes"
 "Opc","c6","Oligodendrocyte Progenitor Cells"
 "Endo","c7","Endothelial Cells"
+"Ast_1", "c8", "Astrocyte Subcluster 1"
+"Ast_2", "c9", "Astrocyte Subcluster 2"
+"Ast_3", "c10", "Astrocyte Subcluster 3"
+"Ast_4", "c11", "Astrocyte Subcluster 4"
+"Ast_5", "c12", "Astrocyte Subcluster 5"
+"Ast_6", "c13", "Astrocyte Subcluster 6"
+"Ast_7", "c14", "Astrocyte Subcluster 7"
+"Ast_8", "c15", "Astrocyte Subcluster 8"
+
+
+
