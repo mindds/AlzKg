@@ -19,6 +19,15 @@
 "Mic_3", "c18", "Microglia Subcluster 3"
 "Mic_4", "c19", "Microglia Subcluster 4"
 "Mic_5", "c20", "Microglia Subcluster 5"
+"Neu_1", "c21", "Neuron Subcluster 1"
+"Neu_2", "c22", "Neuron Subcluster 2"
+"Neu_3", "c23", "Neuron Subcluster 3"
+"Neu_4", "c24", "Neuron Subcluster 4"
+"Neu_5", "c25", "Neuron Subcluster 5"
+"Neu_6", "c26", "Neuron Subcluster 6"
+
+
+
 
 
 
