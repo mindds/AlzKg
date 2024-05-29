@@ -9,7 +9,7 @@ If you're contributing new data from a research paper to AlzKG, please follow th
   
 * **Document edge types** by copying and pasting the unique edge types printed by the convert_csv_kgraw_format.ipynb into the **edge_type_data_dict.csv** file
   
-* **Do a postprocessing step** using the **postprocess_kg_conversion.ipynb** script.
+* **Do a postprocessing step** using the **postprocess_kg_conversion.ipynb** script. The output of convert_csv_kgraw_format.ipynb is the input to this postprocessing step.
   
 * **Upload your individual AlzKG files** by creating a folder named after your research paper within the provided Dropbox link. Place your AlzKG files in this folder.
 
