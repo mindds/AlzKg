@@ -1,4 +1,4 @@
-options(shiny.error = NULL)
+options(shiny.fullstacktrace = TRUE)
 # -----------------
 # Load Libraries
 # -----------------
@@ -16,27 +16,80 @@ library(htmlwidgets)
 
 
 # -----------------
-# Read Data
+# Read PrimeKG Data
 # -----------------
-# Read Data
-nodes <- read.csv('nodes_filtered.csv')
+nodes <- tryCatch(read.csv('nodes_filtered.csv'), error = function(e) { message("Error reading nodes_filtered.csv: ", e$message); NULL })
+kgrawo <- tryCatch(read.csv('kg_raw_orig_filtered.csv'), error = function(e) { message("Error reading kg_raw_orig_filtered.csv: ", e$message); NULL })
+if (!is.null(kgrawo)) kgrawo$source_type <- "ORI"
 
-kgrawo <- read.csv('kg_raw_orig_filtered.csv')
+read_and_add_source <- function(file_name, source_type) {
+  tryCatch({
+    data <- read.csv(file_name)
+    data$source_type <- source_type
+    message(paste("Successfully read:", file_name))
+    data
+  }, error = function(e) {
+    message(paste("Error reading", file_name, ":", e$message))
+    NULL
+  })
+}
+
+Mathys_data <- read_and_add_source("Mathys_ast_final.csv", "Mat")
+Zhou_data <- read_and_add_source("Zhou_ast_final.csv", "Zho")
+Cobos_data <- read_and_add_source("Cobos_Ast_final.csv", "Cob")
+Sziraki_data <- read_and_add_source("Sziraki_Ast_final.csv", "Szi")
+
+datasets <- list(
+  "Mathys" = Mathys_data,
+  "Zhou" = Zhou_data,
+  "Cobos" = Cobos_data,
+  "Sziraki" = Sziraki_data
+)
+
+# Print summary of loaded datasets
+message("\nSummary of loaded datasets:")
+for (dataset in names(datasets)) {
+  if (!is.null(datasets[[dataset]])) {
+    message(paste(dataset, "- Rows:", nrow(datasets[[dataset]]), "Columns:", ncol(datasets[[dataset]])))
+  } else {
+    message(paste(dataset, "- Not loaded"))
+  }
+}
 
 
+# Pre-compute gene sets for each dataset
+gene_sets <- lapply(datasets, function(data) {
+  genes <- data %>% filter(x_type == "gene/protein" | y_type == "gene/protein")
+  unique(c(genes$x_name, genes$y_name))
+})
 
-kgrawMS <- read.csv('Mathys_ast.csv')
-kgrawZS <- read.csv('Zhou_ast.csv')
+# Define colors for source types
+color_Mat <- "#00c8ff"  # Light Blue (Mathys)
+color_Zho <- "#9f67bd"  # Purple (Zhou)
+color_Cob <- "#ff6c00"  # Orange (Cobos)
+color_Szi <- "#d4af37"  # Green (Sziraki)
+color_COM <- "#4b93e1"  # Midpoint color for common genes
+color_ORI <- "#999999"  # Gray (Original dataset)
+color_DEFAULT <- "#CCCCCC"  # Default color (light gray)
 
-# Add source type
-kgrawo$source_type <- "O"
-kgrawMS$source_type <- "M"
-kgrawZS$source_type <- "Z"
+# Create a named vector of colors based on the source types
+source_colors <- c(
+  "Mat" = color_Mat,
+  "Zho" = color_Zho,
+  "Cob" = color_Cob,
+  "Szi" = color_Szi,
+  "COM" = color_COM,
+  "ORI" = color_ORI
+)
 
-# Combine datasets
-kgrawM <- rbind(kgrawo, kgrawMS)
-kgrawZ <- rbind(kgrawo, kgrawZS)
-kgrawA <- rbind(kgrawo, kgrawMS, kgrawZS)
+# Define a fixed color mapping for node types
+node_type_colors <- c(
+  "celltype/state" = "#e91e63",  
+  "gene/protein" = "#4caf50",    
+  "pathway" = "#ff7f0e"         
+  # Add more node types and their corresponding colors here
+)
+
 
 # Set color palette
 num_levels <- 10
@@ -48,6 +101,7 @@ blue_palette <- colorRampPalette(c("lightblue", "darkblue"))(num_levels)
 # -----------------
 ui <- fluidPage(
   tags$head(
+    tags$title("AlzKG Graph Visualization Tool"),  # Add this line for the tab title
     tags$style(
       HTML("
       body {
@@ -124,17 +178,27 @@ ui <- fluidPage(
                       label = "Select Celltype/State:",
                       choices = c("Ast" = "c3_celltype/state_Ast"),
                       selected = "c3_celltype/state_Ast")),
-      # Dataset selection 
-      div(style = "margin-bottom: 25px;", 
-          selectInput("dataset", "Select Datasets:", 
-                      choices = c("Mathys" = "kg_raw_m", "Zhou" = "kg_raw_z", "All" = "kg_raw_a"), 
-                      selected ="kg_raw_a")),
+      div(
+        style = "margin-bottom: 25px;",
+        checkboxGroupInput(
+          "datasets",
+          "Select Datasets:",
+          choiceNames = list(
+            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Mathys"),
+            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Zhou"),
+            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Cobos"),
+            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Sziraki")
+          ),
+          choiceValues = c("Mathys", "Zhou", "Cobos", "Sziraki"),
+          selected = c("Mathys", "Zhou", "Cobos", "Sziraki")
+        )
+      ),
       
       # Focal node for visualization selection
       div(style = "margin-bottom: 25px;",
           selectInput("nodeInterest1", 
                       label = "Select Central Node:",
-                      choices = c("Ast" = "c3_celltype/state_Ast"),
+                      choices = c("Ast" = "c3_celltype/state_Ast", "SOX2"="6657_gene/protein_SOX2"),
                       selected = "c3_celltype/state_Ast")),
       
       # Common Edges
@@ -161,47 +225,33 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   
   data <- reactive({
-    if (input$commonEdges == "commonedges" && input$dataset == "kg_raw_a") {
-      
-      # Filter for gene/protein edges
-      kgrawMS_genes <- kgrawMS %>% filter(x_type == "gene/protein" | y_type == "gene/protein")
-      kgrawZS_genes <- kgrawZS %>% filter(x_type == "gene/protein" | y_type == "gene/protein")
-      
-      # Create sets of genes for both datasets
-      kgrawMS_gene_set <- unique(c(kgrawMS_genes$x_name, kgrawMS_genes$y_name))
-      kgrawZS_gene_set <- unique(c(kgrawZS_genes$x_name, kgrawZS_genes$y_name))
-      
-      # Initialize an empty data frame to store common genes
-      common_genes <- data.frame()
-      
-      # Iterate through each row in kgrawMS_genes to find common genes
-      for (i in 1:nrow(kgrawMS_genes)) {
-        row <- kgrawMS_genes[i, ]
-        if (row$x_type == "gene/protein" && row$x_name %in% kgrawZS_gene_set) {
-          row$source_type <- "C"  # Assign new source_type for common genes
-          common_genes <- bind_rows(common_genes, row)
-        } else if (row$y_type == "gene/protein" && row$y_name %in% kgrawZS_gene_set) {
-          row$source_type <- "C"  # Assign new source_type for common genes
-          common_genes <- bind_rows(common_genes, row)
-        }
-      }
-      
-      # Combine with original data (kgrawo)
-      combined <- bind_rows(kgrawo, common_genes)
-      combined
-      
-      
+    selected_datasets <- input$datasets
+    
+    if (length(selected_datasets) == 0) {
+      combined <- kgrawo
     } else {
-      # Use the selected dataset
-      combined <- switch(input$dataset,
-                         "kg_raw_m" = kgrawM,
-                         "kg_raw_z" = kgrawZ,
-                         "kg_raw_a" = kgrawA)
+      combined <- do.call(rbind, c(list(kgrawo), datasets[selected_datasets]))
+    }
+    
+    if (input$commonEdges == "commonedges" && length(selected_datasets) > 1) {
+      # Find common genes across selected datasets
+      common_gene_set <- Reduce(intersect, gene_sets[selected_datasets])
+      
+      # Filter for common edges
+      common_edges <- combined %>%
+        filter((x_type == "gene/protein" & x_name %in% common_gene_set) |
+                 (y_type == "gene/protein" & y_name %in% common_gene_set))
+      
+      common_edges$source_type <- "COM"
+      
+      # Combine with original data (kgrawo) and remove duplicate common edges
+      combined <- bind_rows(kgrawo, common_edges)
+      combined <- distinct(combined)
     }
     
     # Add source column if it doesn't exist
-    if(!"source" %in% names(combined)) {
-      combined$source <- "O"  # Original dataset
+    if (!"source" %in% names(combined)) {
+      combined$source <- "ORI"  # Original dataset
     }
     
     combined
@@ -326,12 +376,12 @@ server <- function(input, output, session) {
     
     
     # Ensure the node of interest exists in the graph
-    if (!input$nodeInterest %in% V(g)$name) {
+    if (!input$nodeInterest1 %in% V(g)$name) {
       stop("Node of interest does not exist in the graph.")
     }
     
     # Find the vertex of the node of interest
-    node_vertex <- V(g)[V(g)$name == input$nodeInterest]
+    node_vertex <- V(g)[V(g)$name == input$nodeInterest1]
     
     
     #Check if the node has any neighbors
@@ -395,27 +445,12 @@ server <- function(input, output, session) {
     # Add source_type to edges_df by matching from and to
     edges_df$source_type <- edges$source_type[match(paste(edges_df$from, edges_df$to), paste(edges$from, edges$to))]
     
-    # Define colors for source types
-color_M <- "#00c8ff"  # Light Blue
-color_Z <- "#9f67bd"  # Purple
-
-# Calculate the midpoint color between M and Z
-midpoint_color <- "#4b93e1"  # This is approximately the midpoint color
-
-# Add LinkColour to edges_df based on source_type
-edges_df$LinkColour <- ifelse(edges_df$source_type == "M", color_M, 
-                              ifelse(edges_df$source_type == "Z", color_Z, 
-                                     ifelse(edges_df$source_type == "C", midpoint_color, 
-                                            ifelse(edges_df$source_type == "O", "#999999", "#333333"))))
     
-    
-    
-    # Define a fixed color mapping for node types
-    node_type_colors <- c(
-      "celltype/state" = "#e91e63",  
-      "gene/protein" = "#4caf50",    
-      "pathway" = "#ff7f0e"         
-      # Add more node types and their corresponding colors here
+    # Add LinkColour to edges_df based on source_type, with default color for unknown source types
+    edges_df$LinkColour <- ifelse(
+      edges_df$source_type %in% names(source_colors),
+      source_colors[edges_df$source_type],
+      color_DEFAULT
     )
     
     # Ensure 'nodes' dataframe has accurate 'node_type' information
@@ -426,6 +461,10 @@ edges_df$LinkColour <- ifelse(edges_df$source_type == "M", color_M,
     
     # Add a node size column
     vertices_df$nodesize <- ifelse(vertices_df$node_type == "celltype/state", 12, 8)  # Make celltype/state nodes larger
+    # Set the size of the central node to be larger
+    vertices_df$nodesize[vertices_df$name == input$nodeInterest] <- 12  # Adjust the size as needed
+    # Set the size of the central node (node of interest) to be 12
+    vertices_df$nodesize[vertices_df$name == input$nodeInterest1] <- 12
     
     # Creating simplified_name column that extracts part after the underscore
     vertices_df$simplified_name <- sapply(vertices_df$name, function(x) {
@@ -486,7 +525,7 @@ edges_df$LinkColour <- ifelse(edges_df$source_type == "M", color_M,
   })
   
   
-  
+
   output$kg_stats <- renderUI({
     g <- create_graph()  
     
@@ -494,50 +533,54 @@ edges_df$LinkColour <- ifelse(edges_df$source_type == "M", color_M,
     num_nodes <- vcount(g)
     num_edges <- ecount(g)
     graph_density <- edge_density(g)
-    is_graph_connected <- is_connected(g)
-    
-    # Simpler Centrality Measures
     avg_degree_centrality <- mean(degree(g))
-    # Commenting out more complex computations for now
-    # avg_closeness_centrality <- mean(closeness(g))
-    # avg_betweenness_centrality <- mean(betweenness(g))
     
-    # Community Detection (can be very expensive on large graphs)
-    # communities_detected <- max(membership(cluster_louvain(g)))
+    # Create data frames for node types and edge types
+    node_types <- data.frame(
+      type = names(node_type_colors),
+      color = node_type_colors
+    )
     
-    # Path Analysis (can also be expensive)
-    # avg_path_length <- average.path.length(g)
-    # graph_diameter <- diameter(g)
-    
-    # Format the statistics into a string
-    stats_text <- paste(
-      "Number of Nodes:", num_nodes, "<br>",
-      "Number of Edges:", num_edges, "<br>",
-      "Graph Density:", round(graph_density, 4), "<br>",
-      "Is Connected:", is_graph_connected, "<br>",
-      "Average Degree Centrality:", round(avg_degree_centrality, 4), "<br>",
-      # "Average Closeness Centrality:", round(avg_closeness_centrality, 4), "<br>",
-      # "Average Betweenness Centrality:", round(avg_betweenness_centrality, 4), "<br>",
-      #"Number of Communities Detected:", communities_detected, "<br>",
-      # "Average Path Length:", round(avg_path_length, 4), "<br>",
-      # "Diameter:", graph_diameter, "<br>",
-      sep = ""
+    edge_types <- data.frame(
+      type = names(source_colors),
+      color = source_colors
     )
     
     # Format the statistics into a string with HTML markup
     stats_html <- paste0(
-      "<div style='padding: 20px; margin-bottom: 10px;'>",
+      "<div style='padding: 20px; background-color: #FFFFFF; margin-bottom: 10px;'>",
       "<div style='color: #000000; background-color: #F8FBFF; padding: 20px; margin: 20px; border-radius: 5px; margin-bottom: 20px;'>",
-      "<p style='font-size: 14px; font-weight: bold; margin-top: 10px; margin-bottom: 10px;'>Legend:</p>",
-      "<p style='font-size: 12px;'><span style='height: 15px; width: 15px; background-color: #e91e63; border-radius: 40%; display: inline-block;'></span> Node: Celltype/State<span style='display: inline-block; width: 42px;'></span><span style='height: 15px; width: 15px; background-color: #999999; border-radius: 40%; display: inline-block;'></span> Edge (PPI): PrimeKG</p>",
-      "<p style='font-size: 12px;'><span style='height: 15px; width: 15px; background-color: #4caf50; border-radius: 40%; display: inline-block;'></span> Node: Genes/Protein<span style='display: inline-block; width: 40px;'></span><span style='height: 15px; width: 15px; background-color: #00c8ff; border-radius: 40%; display: inline-block;'></span> Edge: Mathys</p>",
-      "<p style='font-size: 12px;'><span style='height: 15px; width: 15px; background-color: #ff7f0e; border-radius: 40%; display: inline-block;'></span> Node: Pathway<span style='display: inline-block; width: 73px;'></span><span style='height: 15px; width: 15px; background-color: #9f67bd; border-radius: 40%; display: inline-block;'></span> Edge: Zhou</p>",
+      "<div style='display: flex;'>",
+      "<div style='flex: 1;'>",
+      "<p style='font-weight: bold; margin-bottom: 10px;'>Nodes:</p>",
+      paste0(sapply(1:nrow(node_types), function(i) {
+        paste0(
+          "<div style='display: flex; align-items: center; margin-bottom: 5px;'>",
+          "<span style='width: 12px; height: 12px; background-color: ", node_types$color[i], "; display: inline-block; margin-right: 10px; border-radius: 50%;'></span>",
+          "<span>", node_types$type[i], "</span>",
+          "</div>"
+        )
+      }), collapse = ""),
+      "</div>",
+      "<div style='flex: 2;'>",
+      "<p style='font-weight: bold; margin-bottom: 10px;'>Edges:</p>",
+      "<div style='display: flex; flex-wrap: wrap;'>",
+      paste0(sapply(1:nrow(edge_types), function(i) {
+        paste0(
+          "<div style='flex: 50%; display: flex; align-items: center; margin-bottom: 5px;'>",
+          "<span style='width: 20px; height: 3px; background-color: ", edge_types$color[i], "; display: inline-block; margin-right: 10px;'></span>",
+          "<span>", edge_types$type[i], "</span>",
+          "</div>"
+        )
+      }), collapse = ""),
+      "</div>",
+      "</div>",
+      "</div>",
       "<p style='font-size: 14px; font-weight: bold; margin-top: 30px; margin-bottom: 10px;'>Graph Details from igraph:</p>",
       "<p style='font-size: 12px; margin-top: 0; margin-bottom: 5px;'>Number of Nodes: ", num_nodes, "<span style='display: inline-block; width: 20px;'></span>",
       "Number of Edges: ", num_edges, "</p>",
       "<p style='font-size: 12px; margin-top: 0; margin-bottom: 5px;'>Graph Density: ", round(graph_density, 4), "<span style='display: inline-block; width: 20px;'></span>",
       "Average Degree Centrality: ", round(avg_degree_centrality, 4), "</p>",
-      # Additional formatted statistics can be added here
       "</div>",
       "</div>"
     )
@@ -545,12 +588,7 @@ edges_df$LinkColour <- ifelse(edges_df$source_type == "M", color_M,
     # Return the formatted HTML for rendering in the UI
     HTML(stats_html)
   })
-  
-  
 }
-
-
 
 # Run the app
 shinyApp(ui = ui, server = server)
-
