@@ -12,20 +12,28 @@ library(RColorBrewer)
 library(igraph)
 library(networkD3)
 library(htmlwidgets)
+library(shinydashboard)
+library(tidyr)
 
 
 
 # -----------------
 # Read PrimeKG Data
 # -----------------
-nodes <- tryCatch(read.csv('nodes_filtered.csv'), error = function(e) { message("Error reading nodes_filtered.csv: ", e$message); NULL })
-kgrawo <- tryCatch(read.csv('kg_raw_orig_filtered.csv'), error = function(e) { message("Error reading kg_raw_orig_filtered.csv: ", e$message); NULL })
-if (!is.null(kgrawo)) kgrawo$source_type <- "ORI"
-
 read_and_add_source <- function(file_name, source_type) {
   tryCatch({
     data <- read.csv(file_name)
     data$source_type <- source_type
+    
+    # Remove "Mathys " prefix if it exists in the relation column - temp code
+    data$relation <- sub("^Mathys ", "", data$relation)
+    
+    # Combines relation and source_type into relation_info directly
+    data$relation_info <- paste(source_type, data$relation, sep=" - ")
+    
+    # Decides which gene/protein to associate with the relation_info
+    data$gene <- ifelse(data$x_type == "gene/protein", data$x_name, data$y_name)
+    
     message(paste("Successfully read:", file_name))
     data
   }, error = function(e) {
@@ -34,10 +42,15 @@ read_and_add_source <- function(file_name, source_type) {
   })
 }
 
-Mathys_data <- read_and_add_source("Mathys_ast_final.csv", "Mat")
-Zhou_data <- read_and_add_source("Zhou_ast_final.csv", "Zho")
-Cobos_data <- read_and_add_source("Cobos_Ast_final.csv", "Cob")
-Sziraki_data <- read_and_add_source("Sziraki_Ast_final.csv", "Szi")
+
+kgrawo <- read_and_add_source("kg_raw_orig_filtered.csv", "ORI")
+Mathys_data <- read_and_add_source("Mathys_ast_final.csv", "Mathys et al. (2019)")
+Zhou_data <- read_and_add_source("Zhou_ast_final.csv", "Zhou et al. (2020)")
+Cobos_data <- read_and_add_source("Cobos_Ast_final.csv", "Cobos et al. (2022)")
+Sziraki_data <- read_and_add_source("Sziraki_Ast_final.csv", "Sziraki et al. (2023)")
+
+# Filter to keep only nodes of type "gene"
+kgrawo <- kgrawo[kgrawo$x_type == "gene/protein" & kgrawo$y_type == "gene/protein", ]
 
 datasets <- list(
   "Mathys" = Mathys_data,
@@ -56,11 +69,10 @@ for (dataset in names(datasets)) {
   }
 }
 
-
 # Pre-compute gene sets for each dataset
 gene_sets <- lapply(datasets, function(data) {
-  genes <- data %>% filter(x_type == "gene/protein" | y_type == "gene/protein")
-  unique(c(genes$x_name, genes$y_name))
+  genes <- data %>% filter(x_type == "gene/protein")
+  unique(c(genes$x_name))
 })
 
 # Define colors for source types
@@ -68,7 +80,7 @@ color_Mat <- "#00c8ff"  # Light Blue (Mathys)
 color_Zho <- "#9f67bd"  # Purple (Zhou)
 color_Cob <- "#ff6c00"  # Orange (Cobos)
 color_Szi <- "#d4af37"  # Green (Sziraki)
-color_COM <- "#4b93e1"  # Midpoint color for common genes
+color_COM <- "#999999"  # Midpoint color for common genes
 color_ORI <- "#999999"  # Gray (Original dataset)
 color_DEFAULT <- "#CCCCCC"  # Default color (light gray)
 
@@ -91,240 +103,177 @@ node_type_colors <- c(
 )
 
 
-# Set color palette
-num_levels <- 10
-blue_palette <- colorRampPalette(c("lightblue", "darkblue"))(num_levels)
-
-
-# -----------------
-# Define App Aesthetics
-# -----------------
-ui <- fluidPage(
-  tags$head(
-    tags$title("AlzKG Graph Visualization Tool"),  # Add this line for the tab title
-    tags$style(
-      HTML("
-      body {
-        background-color: black;
-        color: cornflowerblue;
-      }
-      #main-title {
-        background: linear-gradient(90deg, #000000, #0056B3);
-        height: 70px;
-        padding: 15px 0;
-        color: #FFFFFF;
-      }
-      .sidebar {
-        background-color: #000000;
-      }
-      .well {
-        background-color: #000000;
-        border: none;
-      }
-      .checkbox {
-        color: lightgray;
-      }
-      .radio {
-        color: lightgray;
-      }
-      .selectize-input {
-        color: #000000;
-      }
-      .shiny-output-error {
-        color: #000;
-      }
-      .shiny-output-error:before {
-        color: #000;
-      }
-      #kg_stat {
-        background: linear-gradient(90deg, #0056B3, #000000);
-        border-radius: 10px;
-        box-shadow: 5px 5px 10px #000000;
-        color: #FFFFFF;
-        padding: 15px;
-        margin: 10px 0;
-      }
-      #networkPlot {
-        background: #ffffff;
-        border-radius: 10px;
-        box-shadow: 5px 5px 10px #000000;
-        color: #FFFFFF;
-        padding: 15px;
-        margin: 10px 0;
-      }
-      #explanation_output {
-        background: linear-gradient(90deg, #000000, #0056B3);
-        border-radius: 10px;
-        box-shadow: 5px 5px 10px #000000;
-        color: #FFFFFF;
-        padding: 15px;
-        margin: 10px 0;
-      }
-      ")
+ui <- dashboardPage(
+  dashboardHeader(title = "AlzKG Graph"),
+  dashboardSidebar(
+    tags$style(HTML("
+      .sidebar-menu { padding-top: 20px; }  /* Add space before first input */
+      .sidebar-toggle:hover { background-color: #0056B3 !important; }  /* Change hamburger menu background on hover */
+    ")),
+    sidebarMenu(
+      selectInput("nodeInterest", "Select Celltype or Subtype:",
+                  choices = c("Astrocytes" = "c3_celltype/state_Ast"),
+                  selected = "c3_celltype/state_Ast"),
+      selectInput("nodeInterest1", "Select Central Node:",
+                  choices = c("GFAP" = "2670_gene/protein_GFAP", "SOX2" = "6657_gene/protein_SOX2"),
+                  selected = "2670_gene/protein_GFAP"),
+      selectInput("commonEdges", "Gene Display:",
+                  choices = c("All Genes" = "alledges", "Common Genes" = "commonedges"),
+                  selected = "alledges"),
+      numericInput("numNodesDisplay", "Total #Nodes to Display:",
+                   value = 100, min = 1),
+      checkboxGroupInput("datasets", "Select Datasets:", 
+                         choiceNames = c("Mathys et al. (2019)", "Zhou et al. (2020)", "Cobos et al. (2022)", "Sziraki et al. (2023)"),
+                         choiceValues = list(
+                           "Mathys", "Zhou", "Cobos", "Sziraki"
+                         ),
+                         selected = c("Mathys", "Zhou")),
+      # Add legends below the input controls
+      div(
+        style = "padding: 10px; background-color: #dedede; color: #000000; margin-top: 90px; border-radius: 5px; border: 1px solid #ccc; width: 94%; margin-left: 3%;",
+        HTML(
+          "<div style='color: #000000; padding: 10px; border-radius: 5px;'>",
+          "<p style='font-weight: bold; margin-bottom: 5px;'>Nodes:</p>",
+          "<div style='display: flex; align-items: center; justify-content: flex-start;'>",
+          "<span style='width: 12px; height: 12px; background-color: #4caf50; display: inline-block; margin-right: 10px; border-radius: 50%;'></span>",
+          "<span style='line-height: 12px;'>Genes</span>",
+          "</div>",
+          "<p style='font-weight: bold; margin-bottom: 5px; margin-top: 10px;'>Edges:</p>",
+          "<div style='display: flex; align-items: center; justify-content: flex-start;'>",
+          "<span style='width: 20px; height: 3px; background-color: grey; display: inline-block; margin-right: 10px;'></span>",
+          "<span style='line-height: 10px;'>Protein-Protein Interaction</span>",
+          "</div>"
+        )
+      )
     )
   ),
-  
-  
-  # -----------------
-  # Define App Layout
-  # -----------------
-  useShinyjs(),  
-  titlePanel(h3(id = "main-title", "AlzKG Graph Visualization")),
-  sidebarLayout(
-    sidebarPanel(
-      # Celltype selection
-      div(style = "margin-top: 20px; margin-bottom: 25px;",
-          selectInput("nodeInterest", 
-                      label = "Select Celltype/State:",
-                      choices = c("Ast" = "c3_celltype/state_Ast"),
-                      selected = "c3_celltype/state_Ast")),
-      div(
-        style = "margin-bottom: 25px;",
-        checkboxGroupInput(
-          "datasets",
-          "Select Datasets:",
-          choiceNames = list(
-            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Mathys"),
-            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Zhou"),
-            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Cobos"),
-            tags$span(style = "font-weight: bold; font-size: 14px; color: #FFFFFF; background-color: #333333; padding: 4px 8px; border-radius: 4px;", "Sziraki")
-          ),
-          choiceValues = c("Mathys", "Zhou", "Cobos", "Sziraki"),
-          selected = c("Mathys", "Zhou", "Cobos", "Sziraki")
-        )
-      ),
-      
-      # Focal node for visualization selection
-      div(style = "margin-bottom: 25px;",
-          selectInput("nodeInterest1", 
-                      label = "Select Central Node:",
-                      choices = c("Ast" = "c3_celltype/state_Ast", "SOX2"="6657_gene/protein_SOX2"),
-                      selected = "c3_celltype/state_Ast")),
-      
-      # Common Edges
-      div(style = "margin-bottom: 25px;",
-          selectInput("commonEdges", 
-                      label = "Edge Display:",
-                      choices = c("All Edges" = "alledges", "Common Edges" = "commonedges"),
-                      selected = "alledges")),
-      
-      # Number of nodes to display in the graph 
-      div(style = "margin-bottom: 25px;",
-          numericInput("numNodesDisplay", "Total #Nodes to Display:", 
-                       value = 50, min = 1)),
-      
+  dashboardBody(
+    tags$head(
+      tags$style(HTML('
+        /* Custom CSS for gradient header background */
+        .main-header .logo {
+          background: #000000 !important;
+        }
+        .main-header .navbar {
+          background: linear-gradient(90deg, #000000, #0056B3 ) !important;
+        }
+        /* Custom CSS for full-size graph */
+        .content-wrapper, .right-side {
+          background-color: #FFFFFF;
+        }
+        /* Improve sidebar aesthetics */
+        .skin-blue .main-sidebar {
+          background-color: #0c0c0c;
+        }
+        .skin-blue .sidebar a {
+          color: #b8c7ce;
+        }
+        .skin-blue .sidebar-menu>li.active>a, .skin-blue .sidebar-menu>li:hover>a {
+          color: #fff;
+          background: #1e282c;
+        }
+      '))
     ),
-    
-    mainPanel(
-      forceNetworkOutput("networkPlot"),  # Visualization output
-      uiOutput("kg_stats")
+    fluidRow(
+      column(12, 
+             div(style = "height: 800px;", # Adjust this value as needed
+                 forceNetworkOutput("networkPlot", height = "100%", width = "100%")
+             )
+      ),
+      column(12, 
+             div(id = "node-info", style = "margin-top: 20px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;")
+      )
     )
   )
 )
 
+
 server <- function(input, output, session) {
+  
+  observeEvent(input$toggle, {
+    # Toggle the display property of the div containing inputs
+    shinyjs::toggle(id = "input-container")
+  })
   
   data <- reactive({
     selected_datasets <- input$datasets
     
     if (length(selected_datasets) == 0) {
-      combined <- kgrawo
-    } else {
-      combined <- do.call(rbind, c(list(kgrawo), datasets[selected_datasets]))
+      showNotification("At least one dataset needs to be selected", type = "error")
+      return(NULL)
     }
+    
+    # Get genes from selected datasets
+    selected_genes <- unique(unlist(gene_sets[selected_datasets]))
+    
+    # Find common genes across all selected datasets
+    if (length(selected_datasets) > 1) {
+      common_genes <- gene_sets[[selected_datasets[1]]]
+      for (dataset in selected_datasets[-1]) {
+        common_genes <- intersect(common_genes, gene_sets[[dataset]])
+      }
+    } else {
+      common_genes <- gene_sets[[selected_datasets[1]]]
+    }
+    # Combine and process relation information from datasets
+    all_relations <- do.call(rbind, datasets[selected_datasets]) %>%
+      filter(x_type == "gene/protein" | y_type == "gene/protein") %>%
+      select(gene, relation_info, source_type) %>%
+      distinct()
+    
+    # Group by gene and combine relations
+    relation_info <- all_relations %>%
+      group_by(gene) %>%
+      summarize(relations = paste(unique(relation_info), collapse = "<br>")) %>%
+      distinct()
+    
+  
+    # Filter kgrawo based on selected datasets
+    combined <- kgrawo %>%
+      filter(x_name %in% selected_genes & y_name %in% selected_genes)
+    
+    # Join relations to combined dataframe for x_name and y_name
+    combined <- combined %>%
+      left_join(relation_info, by = c("x_name" = "gene")) %>%
+      rename(x_relations = relations) %>%
+      left_join(relation_info, by = c("y_name" = "gene")) %>%
+      rename(y_relations = relations)
+    
+    # Ensure no relations found is handled
+    combined <- combined %>%
+      mutate(x_relations = ifelse(is.na(x_relations), "No relations found", x_relations),
+             y_relations = ifelse(is.na(y_relations), "No relations found", y_relations))
+    
     
     if (input$commonEdges == "commonedges" && length(selected_datasets) > 1) {
-      # Find common genes across selected datasets
-      common_gene_set <- Reduce(intersect, gene_sets[selected_datasets])
+      # Further filter for common edges
+      combined <- combined %>%
+        filter((x_type == "gene/protein" & x_name %in% common_genes) &
+                 (y_type == "gene/protein" & y_name %in% common_genes))
       
-      # Filter for common edges
-      common_edges <- combined %>%
-        filter((x_type == "gene/protein" & x_name %in% common_gene_set) |
-                 (y_type == "gene/protein" & y_name %in% common_gene_set))
-      
-      common_edges$source_type <- "COM"
-      
-      # Combine with original data (kgrawo) and remove duplicate common edges
-      combined <- bind_rows(kgrawo, common_edges)
-      combined <- distinct(combined)
-    }
-    
-    # Add source column if it doesn't exist
-    if (!"source" %in% names(combined)) {
-      combined$source <- "ORI"  # Original dataset
-    }
-    
-    combined
-  })
-  
-  
-  create_graph <- reactive({
-    fdg <- data()   # fdg is final data set for graph
-    
-    # Convert all IDs to character type
-    nodes$node_id <- as.character(nodes$node_id)
-    nodes$node_type <- as.character(nodes$node_type)
-    nodes$node_name <- as.character(nodes$node_name)
-    fdg$x_id <- as.character(fdg$x_id)
-    fdg$x_type <- as.character(fdg$x_type)
-    fdg$x_name <- as.character(fdg$x_name)
-    fdg$y_id <- as.character(fdg$y_id)
-    fdg$y_type <- as.character(fdg$y_type)
-    fdg$y_name <- as.character(fdg$y_name)
-    
-    # Create unique IDs
-    nodes$unique_id <- paste(nodes$node_id, nodes$node_type, nodes$node_name, sep = "_")
-    fdg$x_unique_id <- paste(fdg$x_id, fdg$x_type, fdg$x_name, sep = "_")
-    fdg$y_unique_id <- paste(fdg$y_id, fdg$y_type, fdg$y_name, sep = "_")
-    
-    # Remove potential whitespace
-    nodes$unique_id <- trimws(nodes$unique_id)
-    fdg$x_unique_id <- trimws(fdg$x_unique_id)
-    fdg$y_unique_id <- trimws(fdg$y_unique_id)
-    
-    
-    # Apply filter to fdg based on both x_unique_id and y_unique_id
-    initial_row_count <- nrow(fdg)
-    fdg_filtered <- fdg[fdg$x_unique_id%in%nodes$unique_id & fdg$y_unique_id%in%nodes$unique_id, ]
-    filtered_row_count <- nrow(fdg_filtered)
-    
-    
-    # Print diagnostic information only if there's a difference
-    # igraph requires every node in kg to be defined in nodes
-    if (initial_row_count != filtered_row_count) {
-      print(paste("Initial row count:", initial_row_count))
-      print(paste("Filtered row count:", filtered_row_count))
-      print(paste("Rows filtered (to make igraph work):", initial_row_count - filtered_row_count))
-    }
-    
-    # Create edges data frame
-    edges <- data.frame(from = fdg_filtered$x_unique_id, to = fdg_filtered$y_unique_id)
-    
-    # Add 'name' attribute for vertices, needed for igraph
-    nodes$name <- nodes$unique_id
-    # Rearrange the columns to make 'name' the first column
-    nodes <- nodes[c("name", setdiff(names(nodes), "name"))]
-    
-    # Create graph object
-    g <- graph_from_data_frame(d = edges, vertices = nodes, directed = FALSE)
-    
-    
-    if (!is_igraph(g)) {
-      print("Graph object is not valid.")
-      return(NULL)
+      combined$source_type <- "COM"  # Mark source type as common
     } else {
-      print("Graph object is valid.")
+      combined$source_type <- "ORI"  # Original dataset
     }
-    return(g)
+    
+    list(
+      data = combined, 
+      selected_genes = selected_genes, 
+      common_genes = common_genes,
+      commonEdges = input$commonEdges
+    )
   })
   
   output$networkPlot <- renderForceNetwork ({
-    fdg <- data() # fdg is final data set for graph
+    result <- data()
+    if (is.null(result)) return(NULL)
+    
+    fdg <- result$data
+    selected_genes <- result$selected_genes
+    common_genes <- result$common_genes
+    commonEdges <- result$commonEdges
     
     # Convert all IDs to character type
-    nodes$node_id <- as.character(nodes$node_id)
-    nodes$node_type <- as.character(nodes$node_type)
-    nodes$node_name <- as.character(nodes$node_name)
     fdg$x_id <- as.character(fdg$x_id)
     fdg$x_type <- as.character(fdg$x_type)
     fdg$x_name <- as.character(fdg$x_name)
@@ -333,35 +282,42 @@ server <- function(input, output, session) {
     fdg$y_name <- as.character(fdg$y_name)
     
     # Create unique IDs
-    nodes$unique_id <- paste(nodes$node_id, nodes$node_type, nodes$node_name, sep = "_")
     fdg$x_unique_id <- paste(fdg$x_id, fdg$x_type, fdg$x_name, sep = "_")
     fdg$y_unique_id <- paste(fdg$y_id, fdg$y_type, fdg$y_name, sep = "_")
     
     # Remove potential whitespace
-    nodes$unique_id <- trimws(nodes$unique_id)
     fdg$x_unique_id <- trimws(fdg$x_unique_id)
     fdg$y_unique_id <- trimws(fdg$y_unique_id)
     
-    # Apply filter to fdg based on both x_unique_id and y_unique_id
-    initial_row_count <- nrow(fdg)
-    fdg_filtered <- fdg[fdg$x_unique_id%in%nodes$unique_id & fdg$y_unique_id%in%nodes$unique_id, ]
-    filtered_row_count <- nrow(fdg_filtered)
-    
-    # Print diagnostic information only if there's a difference
-    # igraph requires every node in kg to be defined in nodes
-    if (initial_row_count != filtered_row_count) {
-      print(paste("Initial row count:", initial_row_count))
-      print(paste("Filtered row count:", filtered_row_count))
-      print(paste("Rows filtered (for igraph to work properly):", initial_row_count - filtered_row_count))
-    }
-    
     # Create edges data frame
-    edges <- data.frame(from = fdg_filtered$x_unique_id, to = fdg_filtered$y_unique_id, source_type = fdg_filtered$source_type)
+    edges <- data.frame(from = fdg$x_unique_id, to = fdg$y_unique_id, source_type = fdg$source_type)
+    
+    # Create nodes data frame
+    nodes_x <- data.frame(
+      unique_id = fdg$x_unique_id,
+      node_id = fdg$x_id,
+      node_type = fdg$x_type,
+      node_name = fdg$x_name,
+      relations = fdg$x_relations
+    )
+    
+    nodes_y <- data.frame(
+      unique_id = fdg$y_unique_id,
+      node_id = fdg$y_id,
+      node_type = fdg$y_type,
+      node_name = fdg$y_name,
+      relations = fdg$y_relations
+    )
+    
+    nodes <- unique(rbind(nodes_x, nodes_y))
+    # Add relations to nodes based on node_name
     
     # Add 'name' attribute for vertices, needed for igraph
     nodes$name <- nodes$unique_id
+    
     # Rearrange the columns to make 'name' the first column
     nodes <- nodes[c("name", setdiff(names(nodes), "name"))]
+    
     
     # Create graph object
     g <- graph_from_data_frame(d = edges, vertices = nodes, directed = FALSE)
@@ -417,6 +373,20 @@ server <- function(input, output, session) {
     # Create the subgraph
     sub_g <- induced_subgraph(g, vids = subgraph_vertices)
     
+    subgraph_nodes <- V(sub_g)$name
+    subgraph_genes <- unique(sapply(strsplit(subgraph_nodes, "_"), function(x) x[length(x)]))
+    
+    unexpected_genes <- setdiff(subgraph_genes, selected_genes)
+    if (length(unexpected_genes) > 0) {
+      print("Unexpected genes in subgraph:")
+      print(unexpected_genes)
+    }
+    unexpected_genes_c <- setdiff(subgraph_genes, common_genes)
+    if (length(unexpected_genes_c) > 0 && commonEdges == "commonedges") {
+      print("Unexpected genes in subgraph with common nodes:")
+      print(unexpected_genes_c)
+    }
+    
     edges_df <- igraph::as_data_frame(sub_g, what = "edges")
     vertices_df <- igraph::as_data_frame(sub_g, what = "vertices")
     vertices_df$group <- sapply(vertices_df$name, function(x) {
@@ -426,7 +396,6 @@ server <- function(input, output, session) {
         return(NA) # or a default group if preferred
       }
     })
-    
     
     # Assuming vertices_df and edges_df are your node and edge data frames, respectively
     # Create a mapping from node names to indices
@@ -460,11 +429,18 @@ server <- function(input, output, session) {
     vertices_df$color <- node_type_colors[vertices_df$node_type]
     
     # Add a node size column
-    vertices_df$nodesize <- ifelse(vertices_df$node_type == "celltype/state", 12, 8)  # Make celltype/state nodes larger
-    # Set the size of the central node to be larger
-    vertices_df$nodesize[vertices_df$name == input$nodeInterest] <- 12  # Adjust the size as needed
-    # Set the size of the central node (node of interest) to be 12
-    vertices_df$nodesize[vertices_df$name == input$nodeInterest1] <- 12
+    vertices_df$nodesize <- ifelse(vertices_df$node_type == "celltype/state", 18, 10)  # Make celltype/state nodes larger
+    
+    # Add a font size column
+    vertices_df$fontsize <- 10  # Default font size
+    
+    # Set the size and font size of the central node to be larger
+    vertices_df$nodesize[vertices_df$name == input$nodeInterest] <- 18  # Adjust the size as needed
+    vertices_df$fontsize[vertices_df$name == input$nodeInterest] <- 14  # Adjust the font size as needed
+    
+    # Set the size and font size of the node of interest to be larger
+    vertices_df$nodesize[vertices_df$name == input$nodeInterest1] <- 18
+    vertices_df$fontsize[vertices_df$name == input$nodeInterest1] <- 14
     
     # Creating simplified_name column that extracts part after the underscore
     vertices_df$simplified_name <- sapply(vertices_df$name, function(x) {
@@ -479,44 +455,77 @@ server <- function(input, output, session) {
     # Add edge labels
     edges_df$label <- edges_df$relation
     
+    
     # Use forceNetwork to create the network visualization
     # Create the network visualization
     network <- forceNetwork(
       Links = edges_df, Nodes = vertices_df,
       Source = "source", Target = "target",
-      NodeID = "simplified_name", Group = "color", opacity = 0.8, zoom = TRUE, bounded = TRUE,
-      colourScale = JS("d3.scaleOrdinal().domain(['#e91e63', '#4caf50', '#ff7f0e']).range(['#e91e63', '#4caf50', '#ff7f0e'])"),
+      NodeID = "simplified_name", Group = "relations", opacity = 0.8, zoom = TRUE, bounded = TRUE,
+      colourScale = JS("d3.scaleOrdinal().range(['#4caf50'])"),
       linkColour = edges_df$LinkColour,
-      fontSize = 20,
+      fontSize = 10,  # Set a small font size for all labels
       fontFamily = "Arial",
       Nodesize = "nodesize",
-      
-      # Increase the size of the graph
-      charge = -150,  # More negative value spreads nodes out more
-      linkDistance = 50,  # Increase this to spread linked nodes further apart
-      
-      radiusCalculation = JS("d.nodesize")  # Use the nodesize column to set node radius
+      charge = -150,
+      linkDistance = 50,
+      opacityNoHover = 1,
+      radiusCalculation = JS("d.nodesize"),
     )
     
     # Use onRender to customize the node text appearance
     network <- htmlwidgets::onRender(network, '
-  function(el, x) {
+function(el, x) {
+    var svg = d3.select(el).select("svg");
+    var nodes = svg.selectAll(".node");
+    var links = svg.selectAll(".link");
+    
+    // Disable default hover behavior
+    nodes.on("mouseover", null).on("mouseout", null);
+    
     // Select all text elements
-    var texts = d3.selectAll(".node text")
+    var texts = svg.selectAll(".node text")
       .style("fill", "black")
       .style("font-weight", "bold")
-      .style("font-size", "16px");
+      .style("font-size", function(d) { return d.fontsize + "px"; });
+    
+    // Click functionality
+    nodes.on("click", function(d) {
+      console.log("Clicked node:", d);  // Log the clicked node data
       
-    // Add edge labels
-    var links = d3.selectAll(".link")
-      .append("title")
-      .text(function(d) { return d.label; });
+      // Display node info
+     d3.select("#node-info")
+        .html("<div style=\'font-size: 16px;\'>" +
+              "<strong style=\'font-size: 18px;\'>Selected Gene:</strong> " + "<br>" + d.name + 
+              "<br><strong style=\'font-size: 18px;\'>Source:</strong> " + "<br>" + (d.group) +
+              "</div>");
+      
+      // Highlight clicked node and connected nodes/links
+      nodes.style("fill", "#4caf50") // default color
+       .style("opacity", 0.3);
+      links.style("opacity", 0.2);
+      
+      // Highlight clicked node by changing its color and opacity
+     d3.select(this)
+      .style("fill", "#2e2e2e") // color of the clicked node
+      .style("opacity", 1);
+      
+      links.filter(function(l) {
+        return l.source.name === d.name || l.target.name === d.name;
+      }).style("opacity", 1);
+      
+      nodes.filter(function(n) {
+        return n.name === d.name || links.filter(function(l) {
+          return (l.source.name === d.name && l.target.name === n.name) ||
+                 (l.target.name === d.name && l.source.name === n.name);
+        }).size() > 0;
+      }).style("opacity", 1);
+    });
+    
       
     // Make the SVG fill its container
-    d3.select("svg")
-      .attr("width", "100%")
-      .attr("height", "100%");
-
+    svg.attr("width", "100%")
+       .attr("height", "100%");
   }
 ')
     # Render the network visualization
@@ -524,71 +533,9 @@ server <- function(input, output, session) {
     
   })
   
-  
-
-  output$kg_stats <- renderUI({
-    g <- create_graph()  
-    
-    # Basic Graph Properties
-    num_nodes <- vcount(g)
-    num_edges <- ecount(g)
-    graph_density <- edge_density(g)
-    avg_degree_centrality <- mean(degree(g))
-    
-    # Create data frames for node types and edge types
-    node_types <- data.frame(
-      type = names(node_type_colors),
-      color = node_type_colors
-    )
-    
-    edge_types <- data.frame(
-      type = names(source_colors),
-      color = source_colors
-    )
-    
-    # Format the statistics into a string with HTML markup
-    stats_html <- paste0(
-      "<div style='padding: 20px; background-color: #FFFFFF; margin-bottom: 10px;'>",
-      "<div style='color: #000000; background-color: #F8FBFF; padding: 20px; margin: 20px; border-radius: 5px; margin-bottom: 20px;'>",
-      "<div style='display: flex;'>",
-      "<div style='flex: 1;'>",
-      "<p style='font-weight: bold; margin-bottom: 10px;'>Nodes:</p>",
-      paste0(sapply(1:nrow(node_types), function(i) {
-        paste0(
-          "<div style='display: flex; align-items: center; margin-bottom: 5px;'>",
-          "<span style='width: 12px; height: 12px; background-color: ", node_types$color[i], "; display: inline-block; margin-right: 10px; border-radius: 50%;'></span>",
-          "<span>", node_types$type[i], "</span>",
-          "</div>"
-        )
-      }), collapse = ""),
-      "</div>",
-      "<div style='flex: 2;'>",
-      "<p style='font-weight: bold; margin-bottom: 10px;'>Edges:</p>",
-      "<div style='display: flex; flex-wrap: wrap;'>",
-      paste0(sapply(1:nrow(edge_types), function(i) {
-        paste0(
-          "<div style='flex: 50%; display: flex; align-items: center; margin-bottom: 5px;'>",
-          "<span style='width: 20px; height: 3px; background-color: ", edge_types$color[i], "; display: inline-block; margin-right: 10px;'></span>",
-          "<span>", edge_types$type[i], "</span>",
-          "</div>"
-        )
-      }), collapse = ""),
-      "</div>",
-      "</div>",
-      "</div>",
-      "<p style='font-size: 14px; font-weight: bold; margin-top: 30px; margin-bottom: 10px;'>Graph Details from igraph:</p>",
-      "<p style='font-size: 12px; margin-top: 0; margin-bottom: 5px;'>Number of Nodes: ", num_nodes, "<span style='display: inline-block; width: 20px;'></span>",
-      "Number of Edges: ", num_edges, "</p>",
-      "<p style='font-size: 12px; margin-top: 0; margin-bottom: 5px;'>Graph Density: ", round(graph_density, 4), "<span style='display: inline-block; width: 20px;'></span>",
-      "Average Degree Centrality: ", round(avg_degree_centrality, 4), "</p>",
-      "</div>",
-      "</div>"
-    )
-    
-    # Return the formatted HTML for rendering in the UI
-    HTML(stats_html)
-  })
 }
 
 # Run the app
 shinyApp(ui = ui, server = server)
+
+
